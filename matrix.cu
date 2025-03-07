@@ -9,8 +9,6 @@
 void destroy_matrix(matrix_t *m)
 {
     //printf("free %p %p\n", m, m->m);
-    //free(m->m);
-    //free(m);
 
     cudaFree(m->m);
     cudaFree(m);
@@ -30,24 +28,6 @@ matrix_t * alloc_matrix(unsigned rows, unsigned columns)
     res->rows = rows;
     return res;
 }
-
-/*matrix_t * alloc_matrix_GPU(matrix_t * h_matrix) {
-    double * d_m;
-    matrix_t * tmp;
-    matrix_t * d_matrix;
-
-    CHECK_ERROR(cudaMalloc( (void**)&d_m, h_matrix->rows * h_matrix->columns * sizeof(double) ));
-    CHECK_ERROR(cudaMemcpy(d_m, h_matrix->m, h_matrix->rows * h_matrix->columns * sizeof(double), cudaMemcpyHostToDevice));
-
-    tmp->rows = h_matrix->rows;
-    tmp->columns = h_matrix->columns;
-    tmp->m = d_m;
-
-    CHECK_ERROR(cudaMalloc((void**)&d_matrix, sizeof(matrix_t)));
-    CHECK_ERROR(cudaMemcpy(d_matrix, tmp, sizeof(matrix_t), cudaMemcpyHostToDevice));
-
-    return d_matrix;
-}*/
 
 void print_matrix(matrix_t *m, bool is_short){
     unsigned lim_rows = 0;
@@ -145,6 +125,18 @@ void matrix_dot_GPU(matrix_t *m1, matrix_t *m2, matrix_t *res) {
     (m1->rows == res->rows)    &&
     (m2->columns == res->columns));
 
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (row < m1->rows && col < m2->columns)
+    {
+        float sum = 0;
+        for (int i = 0; i < m1->columns; i++)
+        {
+            sum += m1->m[row*m1->columns+i] * m2->m[i*m2->columns+col];
+        }
+        res->m[row*m2->columns+col] = sum;
+    } 
 
 }
 
