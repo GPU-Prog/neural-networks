@@ -1,4 +1,5 @@
 // Compile gcc -o ./ann main.c matrix.c ann.c mnist.c -lm
+// nvcc -o ./ann main.cu matrix.cu ann.cu mnist.cu -lm
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -10,6 +11,7 @@
 #include <math.h>
 #include <string.h>
 #include <time.h>
+#include "error.h"
 
 void populate_minibatch(double *x, double* y, unsigned* minibatch_idx, unsigned minibatch_size, image * img, unsigned img_size, byte* label, unsigned label_size);
 
@@ -48,15 +50,19 @@ double accuracy(image* test_img, byte* test_label, unsigned datasize, unsigned m
 {
     unsigned good = 0;
     unsigned idx[datasize];    
-    double *x = (double *) malloc( 28 * 28 * minibatch_size * sizeof(double));
-    double *y = (double *) malloc( 10 * minibatch_size * sizeof(double) );
+    //double *x = (double *) malloc( 28 * 28 * minibatch_size * sizeof(double));
+    double *x;
+    CHECK_ERROR(cudaMallocManaged((void**)&x, 28*28 * minibatch_size * sizeof( double )));
+    //double *y = (double *) malloc( 10 * minibatch_size * sizeof(double) );
+    double *y;
+    CHECK_ERROR(cudaMallocManaged((void**)&y, 10 * minibatch_size * sizeof( double )));
 
     zero_to_n(datasize, idx);
     
     for (int i = 0; i < datasize - minibatch_size; i+= minibatch_size)
     {        
         populate_minibatch(x, y, &idx[i], minibatch_size, test_img, 28*28, test_label, 10);
-        memcpy(nn->layers[0]->activations->m, x, 28*28 * minibatch_size * sizeof(double));     
+        memcpy(nn->layers[0]->activations->m, x, 28*28 * minibatch_size * sizeof(double));   // VERIFICAR DEPOIS  
         
         forward(nn, sigmoid);
         for (int col = 0; col < minibatch_size; col ++)
@@ -76,9 +82,9 @@ double accuracy(image* test_img, byte* test_label, unsigned datasize, unsigned m
                 good ++;
             }
         }
-    }    
-    free(x);
-    free(y);
+    }   
+    cudaFree(x);
+    cudaFree(y);
 
     unsigned ntests = (datasize/minibatch_size) * minibatch_size;
     return (100.0* (double) (good) / ntests );
@@ -121,12 +127,23 @@ int main(int argc, char *argv[])
 
     printf("starting accuracy %lf\n", accuracy(test_img, test_label, ntest, minibatch_size, nn));
 
-    unsigned *shuffled_idx = (unsigned *)malloc(datasize*sizeof(unsigned));
-    double *x = (double *) malloc(28*28 * minibatch_size * sizeof( double ));
-    double *y = (double *) malloc(10 * minibatch_size * sizeof( double ));
+    //unsigned *shuffled_idx = (unsigned *)malloc(datasize*sizeof(unsigned));
+    unsigned *shuffled_idx;
+    CHECK_ERROR(cudaMallocManaged((void**)&shuffled_idx, datasize*sizeof(unsigned)));
+
+    //double *x = (double *) malloc(28*28 * minibatch_size * sizeof( double ));
+    double *x;
+    CHECK_ERROR(cudaMallocManaged((void**)&x, 28*28 * minibatch_size * sizeof( double )));
+
+
+    //double *y = (double *) malloc(10 * minibatch_size * sizeof( double ));
+    double *y;
+    CHECK_ERROR(cudaMallocManaged((void**)&y, 10 * minibatch_size * sizeof( double )));
+
+
     matrix_t *out = alloc_matrix(10, minibatch_size);
     
-    for (int epoch = 0; epoch < 2; epoch ++)
+    for (int epoch = 0; epoch < 3; epoch ++)
     {
         printf("start learning epoch %d\n", epoch);
 
@@ -138,14 +155,14 @@ int main(int argc, char *argv[])
             memcpy(nn->layers[0]->activations->m, x, 28 * 28 * minibatch_size * sizeof(double));
             forward(nn, sigmoid);
             memcpy(out->m, y, 10 * minibatch_size * sizeof(double));            
-            backward(nn, out, dsigmoid);            
+            backward(nn, out, dsigmoid);           
         }     
         printf("epoch %d accuracy %lf\n", epoch, accuracy(test_img, test_label, ntest, minibatch_size, nn));
     }
 
-    free(x);
-    free(y);
-    free(shuffled_idx);
+    cudaFree(x);
+    cudaFree(y);
+    cudaFree(shuffled_idx);
     destroy_matrix(out);   
     
     return 0;

@@ -10,8 +10,8 @@ void destroy_matrix(matrix_t *m)
 {
     //printf("free %p %p\n", m, m->m);
 
-    cudaFree(m->m);
-    cudaFree(m);
+    CHECK_ERROR(cudaFree(m->m));
+    CHECK_ERROR(cudaFree(m));
 }
 
 matrix_t * alloc_matrix(unsigned rows, unsigned columns)
