@@ -69,6 +69,23 @@ void hadamard_product(matrix_t *m1, matrix_t *m2, matrix_t *res)
     }
 }
 
+__global__
+void hadamard_product_GPU(matrix_t *m1, matrix_t *m2, matrix_t *res) {
+
+    assert ( (m1->columns == m2->columns)   &&
+             (m1->columns == res->columns)  &&
+             (m1->rows == m2->rows)         &&
+             (m1->rows == res->rows));
+
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (row < m1->rows && col < m2->columns) {
+        res->m[row*res->columns+col] = m1->m[row*m1->columns+col] * m2->m[row*m2->columns+col];
+    } 
+
+}
+
 void matrix_sum(matrix_t *m1, matrix_t *m2, matrix_t *res)
 {
     assert ( (m1->columns == m2->columns)  &&
@@ -82,6 +99,23 @@ void matrix_sum(matrix_t *m1, matrix_t *m2, matrix_t *res)
     }
 }
 
+__global__
+void matrix_sum_GPU(matrix_t *m1, matrix_t *m2, matrix_t *res)
+{
+    assert ( (m1->columns == m2->columns)  &&
+             (m1->columns == res->columns) &&
+             (m1->rows == m2->rows)        &&
+             (m1->rows == res->rows));
+
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    int idx = row*m1->columns+col;
+
+    if (row < m1->rows && col < m1->columns) {
+        res->m[idx] = m1->m[idx] + m2->m[idx];
+    } 
+}
+
 void matrix_minus(matrix_t *m1, matrix_t *m2, matrix_t *res)
 {
     assert ( (m1->columns == m2->columns)  &&
@@ -93,6 +127,25 @@ void matrix_minus(matrix_t *m1, matrix_t *m2, matrix_t *res)
     {
         res->m[idx] = m1->m[idx] - m2->m[idx];
     }
+}
+
+
+__global__
+void matrix_minus_GPU(matrix_t *m1, matrix_t *m2, matrix_t *res) {
+
+    assert ( (m1->columns == m2->columns)  &&
+             (m1->columns == res->columns) &&
+             (m1->rows == m2->rows)        &&
+             (m1->rows == res->rows));
+
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    int idx = row*m1->columns+col;
+
+    if (row < m1->rows && col < m1->columns) {
+        res->m[idx] = m1->m[idx] - m2->m[idx];
+    } 
+
 }
 
 void matrix_dot(matrix_t *m1, matrix_t *m2, matrix_t *res)
@@ -165,6 +218,20 @@ void matrix_transpose(matrix_t *m1, matrix_t *res)
     }
 }
 
+__global__
+void matrix_transpose_GPU(matrix_t *m1, matrix_t *res) {
+
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (row < m1->rows && col < m1->columns)
+    {
+        res->m[col*m1->rows+row] = m1->m[row*m1->columns+col];
+    } 
+
+}
+
+
 void matrix_scalar(matrix_t *m1, double s, matrix_t *res)
 {
     assert ( (m1->rows == res->rows) &&             
@@ -174,6 +241,19 @@ void matrix_scalar(matrix_t *m1, double s, matrix_t *res)
     {
         res->m[idx] = m1->m[idx] * s;
     }
+}
+
+__global__
+void matrix_scalar_GPU(matrix_t *m1, double s, matrix_t *res) {
+
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    int idx = row*res->columns+col;
+
+    if (row < m1->rows && col < m1->columns) {
+        res->m[idx] = m1->m[idx] * s;
+    } 
+
 }
 
 void matrix_memcpy(matrix_t *dest, const matrix_t *src)
