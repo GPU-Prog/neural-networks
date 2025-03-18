@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include "error.h"
 
+
 double normalRand(double mu, double sigma);
 void init_weight(matrix_t* w, unsigned nneurones_prev);
 void print_layer(layer_t *layer);
@@ -140,12 +141,14 @@ void forward(ann_t *nn, double (*activation_function)(double))
         dim3 blockDim(16, 16);
         dim3 gridDim(ceil(((float)nn->layers[l-1]->activations->columns) / blockDim.x), ceil(((float)nn->layers[l]->weights->rows) / blockDim.y));
         matrix_dot_GPU<<<gridDim, blockDim>>>(nn->layers[l]->weights, nn->layers[l-1]->activations, z1);
+        // matrix_dot_cublas(nn->layers[l]->weights, nn->layers[l-1]->activations, z1);
         CHECK_ERROR(cudaDeviceSynchronize());
 
         //matrix_dot(nn->layers[l]->biases, one, z2); // z2 <- b^l x 1        
         dim3 blockDim2(16, 16);
         dim3 gridDim2( ceil( ((float)one->columns) / blockDim2.x ), ceil( ((float)nn->layers[l]->biases->rows) / blockDim2.y ) );
         matrix_dot_GPU<<<gridDim2, blockDim2>>>(nn->layers[l]->biases, one, z2);
+        // matrix_dot_cublas(nn->layers[l]->biases, one, z2);
         CHECK_ERROR(cudaDeviceSynchronize());
         
         
@@ -163,6 +166,77 @@ void forward(ann_t *nn, double (*activation_function)(double))
 
     }
 }
+
+/* void forward(ann_t *nn, double (*activation_function)(double)) {
+    cudaStream_t stream1, stream2, stream3; 
+
+    // Criando streams
+    cudaStreamCreate(&stream1);
+    cudaStreamCreate(&stream2);
+    cudaStreamCreate(&stream3);
+
+    for (int l = 1; l < nn->number_of_layers; l++) {
+        matrix_t *z1 = alloc_matrix(nn->layers[l]->number_of_neurons, nn->minibatch_size);
+        matrix_t *z2 = alloc_matrix(nn->layers[l]->number_of_neurons, nn->minibatch_size);
+        matrix_t *one = alloc_matrix(1, nn->minibatch_size);
+
+        for (int idx = 0; idx < one->columns * one->rows; idx++)
+            one->m[idx] = 1.0;
+
+        // Pré-carregamento para GPU
+        int device;
+        cudaGetDevice(&device);
+        cudaMemPrefetchAsync(z1->m, z1->rows * z1->columns * sizeof(double), device, stream1);
+        cudaMemPrefetchAsync(z2->m, z2->rows * z2->columns * sizeof(double), device, stream2);
+        cudaMemPrefetchAsync(one->m, one->rows * one->columns * sizeof(double), device, stream2);
+        cudaMemPrefetchAsync(nn->layers[l]->weights->m, nn->layers[l]->weights->rows * nn->layers[l]->weights->columns * sizeof(double), device, stream1);
+        cudaMemPrefetchAsync(nn->layers[l-1]->activations->m, nn->layers[l-1]->activations->rows * nn->layers[l-1]->activations->columns * sizeof(double), device, stream1);
+        cudaMemPrefetchAsync(nn->layers[l]->biases->m, nn->layers[l]->biases->rows * nn->layers[l]->biases->columns * sizeof(double), device, stream2);
+
+        // Executa o primeiro matrix_dot em stream1
+        dim3 blockDim(16, 16);
+        dim3 gridDim(ceil(((float)nn->layers[l-1]->activations->columns) / blockDim.x), 
+                     ceil(((float)nn->layers[l]->weights->rows) / blockDim.y));
+        matrix_dot_GPU<<<gridDim, blockDim, 0, stream1>>>(nn->layers[l]->weights, nn->layers[l-1]->activations, z1);
+        // cudaStreamSynchronize(stream1);
+
+        // Executa o segundo matrix_dot em stream2 (independente)
+        dim3 blockDim2(16, 16);
+        dim3 gridDim2(ceil(((float)one->columns) / blockDim2.x), 
+                      ceil(((float)nn->layers[l]->biases->rows) / blockDim2.y));
+        matrix_dot_GPU<<<gridDim2, blockDim2, 0, stream2>>>(nn->layers[l]->biases, one, z2);
+
+        // Sincroniza ambos antes de somar
+        cudaStreamSynchronize(stream1);
+        cudaStreamSynchronize(stream2);
+
+        // Pré-carregamento para soma
+        cudaMemPrefetchAsync(z1->m, z1->rows * z1->columns * sizeof(double), device, stream3);
+        cudaMemPrefetchAsync(z2->m, z2->rows * z2->columns * sizeof(double), device, stream3);
+        cudaMemPrefetchAsync(nn->layers[l]->z->m, nn->layers[l]->z->rows * nn->layers[l]->z->columns * sizeof(double), device, stream3);
+
+        // Executa a soma em stream3
+        dim3 blockDim_sum(16, 16);
+        dim3 gridDim_sum(ceil(((float)z1->columns) / blockDim_sum.x), 
+                         ceil(((float)z1->rows) / blockDim_sum.y));
+        matrix_sum_GPU<<<gridDim_sum, blockDim_sum, 0, stream3>>>(z1, z2, nn->layers[l]->z);
+
+        // Sincroniza antes de aplicar a função de ativação
+        cudaStreamSynchronize(stream3);
+
+        matrix_function(nn->layers[l]->z, activation_function, nn->layers[l]->activations);
+
+        destroy_matrix(z1);
+        destroy_matrix(z2);
+        destroy_matrix(one);
+    }
+
+    // Destroi os streams
+    cudaStreamDestroy(stream1);
+    cudaStreamDestroy(stream2);
+    cudaStreamDestroy(stream3);
+} */
+
 
 void backward(ann_t *nn, matrix_t *y, double (*derivative_actfunct)(double))
 {
@@ -203,6 +277,7 @@ void backward(ann_t *nn, matrix_t *y, double (*derivative_actfunct)(double))
         dim3 blockDim_dot(16, 16);
         dim3 gridDim_dot(ceil(((float)nn->layers[l]->delta->columns) / blockDim_dot.x), ceil(((float)tw->rows) / blockDim_dot.y));
         matrix_dot_GPU<<<gridDim_dot, blockDim_dot>>>(tw, nn->layers[l]->delta, delta_tmp);
+        // matrix_dot_cublas(tw, nn->layers[l]->delta, delta_tmp);
         cudaDeviceSynchronize();
 
         matrix_function(nn->layers[l-1]->z, derivative_actfunct, dfz); // f'(z^(l-1))
@@ -234,6 +309,7 @@ void backward(ann_t *nn, matrix_t *y, double (*derivative_actfunct)(double))
         dim3 blockDim_dot2(16, 16);
         dim3 gridDim_dot2(ceil(((float)ta->columns) / blockDim_dot2.x), ceil(((float)nn->layers[l]->delta->rows) / blockDim_dot2.y));
         matrix_dot_GPU<<<gridDim_dot2, blockDim_dot2>>>(nn->layers[l]->delta, ta, w1);
+        // matrix_dot_cublas(nn->layers[l]->delta, ta, w1);
         cudaDeviceSynchronize();
 
         //matrix_scalar(w1, nn->alpha / nn->minibatch_size, w1); // w1 <- alpha /m . delta^l x (a^(l-1))^T
@@ -261,6 +337,7 @@ void backward(ann_t *nn, matrix_t *y, double (*derivative_actfunct)(double))
         dim3 blockDim_dot3(16, 16);
         dim3 gridDim_dot3(ceil(((float)one->columns) / blockDim_dot3.x), ceil(((float)nn->layers[l]->delta->rows) / blockDim_dot3.y));
         matrix_dot_GPU<<<gridDim_dot3, blockDim_dot3>>>(nn->layers[l]->delta, one, b1);
+        // matrix_dot_cublas(nn->layers[l]->delta, one, b1);
         cudaDeviceSynchronize();
 
         //matrix_scalar(b1,  nn->alpha / nn->minibatch_size, b1); // b1 <- alpha / m . delta^l x 1^T
@@ -279,3 +356,73 @@ void backward(ann_t *nn, matrix_t *y, double (*derivative_actfunct)(double))
         destroy_matrix(b1);
     }
 }
+
+/* void backward(ann_t *nn, matrix_t *y, double (*derivative_actfunct)(double))
+{
+    unsigned L = nn->number_of_layers - 1;
+    cudaStream_t stream1, stream2;
+    cudaStreamCreate(&stream1);
+    cudaStreamCreate(&stream2);
+
+    matrix_t *dfzL = alloc_matrix(nn->layers[L]->number_of_neurons, nn->minibatch_size);
+
+    // Subtrai ativação de saída pelo rótulo esperado
+    dim3 blockDim_minus(16, 16);
+    dim3 gridDim_minus(ceil((float)nn->layers[L]->activations->columns / blockDim_minus.x),
+                       ceil((float)nn->layers[L]->activations->rows / blockDim_minus.y));
+    matrix_minus_GPU<<<gridDim_minus, blockDim_minus, 0, stream1>>>(nn->layers[L]->activations, y, nn->layers[L]->delta);
+
+    printf("minus\n");
+    fflush(stdout);
+
+    // Aplica função de ativação derivada
+    matrix_function(nn->layers[L]->z, derivative_actfunct, dfzL);
+
+    printf("matrix function\n");
+    fflush(stdout);
+
+    // Produto de Hadamard
+    dim3 blockDim_had(16, 16);
+    dim3 gridDim_had(ceil((float)nn->layers[L]->delta->columns / blockDim_had.x),
+                     ceil((float)nn->layers[L]->delta->rows / blockDim_had.y));
+    hadamard_product_GPU<<<gridDim_had, blockDim_had, 0, stream2>>>(nn->layers[L]->delta, dfzL, nn->layers[L]->delta);
+
+    printf("hadamar\n");
+    fflush(stdout);
+
+    cudaStreamSynchronize(stream1);
+    cudaStreamSynchronize(stream2);
+    destroy_matrix(dfzL);
+
+    for (int l = L; l > 1; l--)
+    {
+        matrix_t *tw = alloc_matrix(nn->layers[l - 1]->number_of_neurons, nn->layers[l]->number_of_neurons);
+        matrix_t *delta_tmp = alloc_matrix(nn->layers[l - 1]->number_of_neurons, nn->minibatch_size);
+        matrix_t *dfz = alloc_matrix(nn->layers[l - 1]->number_of_neurons, nn->minibatch_size);
+
+        dim3 blockDim_trans(16, 16);
+        dim3 gridDim_trans(ceil((float)nn->layers[l]->weights->columns / blockDim_trans.x),
+                           ceil((float)nn->layers[l]->weights->rows / blockDim_trans.y));
+        matrix_transpose_GPU<<<gridDim_trans, blockDim_trans, 0, stream1>>>(nn->layers[l]->weights, tw);
+
+        dim3 blockDim_dot(16, 16);
+        dim3 gridDim_dot(ceil((float)nn->layers[l]->delta->columns / blockDim_dot.x),
+                         ceil((float)tw->rows / blockDim_dot.y));
+        matrix_dot_GPU<<<gridDim_dot, blockDim_dot, 0, stream2>>>(tw, nn->layers[l]->delta, delta_tmp);
+
+        cudaStreamSynchronize(stream1);
+        cudaStreamSynchronize(stream2);
+
+        matrix_function(nn->layers[l - 1]->z, derivative_actfunct, dfz);
+
+        hadamard_product_GPU<<<gridDim_dot, blockDim_dot, 0, stream1>>>(delta_tmp, dfz, nn->layers[l - 1]->delta);
+
+        cudaStreamSynchronize(stream1);
+        destroy_matrix(tw);
+        destroy_matrix(delta_tmp);
+        destroy_matrix(dfz);
+    }
+
+    cudaStreamDestroy(stream1);
+    cudaStreamDestroy(stream2);
+} */

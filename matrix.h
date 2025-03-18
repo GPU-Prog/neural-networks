@@ -38,6 +38,8 @@ void matrix_dot(matrix_t *m1, matrix_t *m2, matrix_t *res);
 __global__
 void matrix_dot_GPU(matrix_t *m1, matrix_t *m2, matrix_t *res);
 
+void matrix_dot_cublas(matrix_t* A, matrix_t* B, matrix_t* C);
+
 void matrix_function(matrix_t *m1, double (*f)(double), matrix_t *res);
 
 void matrix_transpose(matrix_t *m1, matrix_t *res);

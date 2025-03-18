@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "error.h"
+#include <cublas_v2.h>
+
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define MAX(a,b) (((a)>(b))?(a):(b))
@@ -171,27 +173,97 @@ void matrix_dot(matrix_t *m1, matrix_t *m2, matrix_t *res)
     }
 }
 
+// __global__
+// void matrix_dot_GPU(matrix_t *m1, matrix_t *m2, matrix_t *res) {
+
+//     assert ( (m1->columns == m2->rows)  &&
+//     (m1->rows == res->rows)    &&
+//     (m2->columns == res->columns));
+
+//     int row = blockIdx.y * blockDim.y + threadIdx.y;
+//     int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+//     if (row < m1->rows && col < m2->columns)
+//     {
+//         float sum = 0;
+//         for (int i = 0; i < m1->columns; i++)
+//         {
+//             sum += m1->m[row*m1->columns+i] * m2->m[i*m2->columns+col];
+//         }
+//         res->m[row*m2->columns+col] = sum;
+//     } 
+
+// }
+
+#define TILE_SIZE 32
+
 __global__
 void matrix_dot_GPU(matrix_t *m1, matrix_t *m2, matrix_t *res) {
-
-    assert ( (m1->columns == m2->rows)  &&
-    (m1->rows == res->rows)    &&
-    (m2->columns == res->columns));
+    assert((m1->columns == m2->rows) &&
+           (m1->rows == res->rows) &&
+           (m2->columns == res->columns));
 
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (row < m1->rows && col < m2->columns)
-    {
-        float sum = 0;
-        for (int i = 0; i < m1->columns; i++)
-        {
-            sum += m1->m[row*m1->columns+i] * m2->m[i*m2->columns+col];
-        }
-        res->m[row*m2->columns+col] = sum;
-    } 
+    // Tamanho do tile (bloco de dados carregados para a memória compartilhada)
+    __shared__ float tileA[TILE_SIZE][TILE_SIZE];
+    __shared__ float tileB[TILE_SIZE][TILE_SIZE];
 
+    float sum = 0.0f;
+    int tileCount = (m1->columns + TILE_SIZE - 1) / TILE_SIZE;
+
+    // Loop para percorrer a multiplicação por blocos
+    for (int t = 0; t < tileCount; ++t) {
+        // Carregar dados de m1 e m2 na memória compartilhada
+        if (row < m1->rows && t * TILE_SIZE + threadIdx.x < m1->columns)
+            tileA[threadIdx.y][threadIdx.x] = m1->m[row * m1->columns + t * TILE_SIZE + threadIdx.x];
+        else
+            tileA[threadIdx.y][threadIdx.x] = 0.0f;
+
+        if (col < m2->columns && t * TILE_SIZE + threadIdx.y < m2->rows)
+            tileB[threadIdx.y][threadIdx.x] = m2->m[(t * TILE_SIZE + threadIdx.y) * m2->columns + col];
+        else
+            tileB[threadIdx.y][threadIdx.x] = 0.0f;
+
+        // Sincronização de threads para garantir que as variáveis da memória compartilhada estão carregadas
+        __syncthreads();
+
+        // Realizar a multiplicação parcial
+        for (int k = 0; k < TILE_SIZE; ++k) {
+            sum += tileA[threadIdx.y][k] * tileB[k][threadIdx.x];
+        }
+
+        // Sincronizar novamente para garantir que todos os threads carreguem os próximos dados
+        __syncthreads();
+    }
+
+    // Armazenar o resultado na matriz resultante se estiver dentro dos limites
+    if (row < m1->rows && col < m2->columns) {
+        res->m[row * m2->columns + col] = sum;
+    }
 }
+
+
+void matrix_dot_cublas(matrix_t* m1, matrix_t* m2, matrix_t* res) {
+    cublasHandle_t handle;
+    cublasCreate(&handle);
+
+    const double alpha = 1.0;
+    const double beta = 0.0;
+
+    cublasDgemm(handle,
+                CUBLAS_OP_N, CUBLAS_OP_N,
+                res->rows, m2->columns, m1->columns,
+                &alpha,
+                m1->m, m1->rows,
+                m2->m, m2->rows,
+                &beta,
+                res->m, res->rows);
+    
+    cublasDestroy(handle);
+}
+
 
 void matrix_function(matrix_t *m1, double (*f)(double), matrix_t *res)
 {
