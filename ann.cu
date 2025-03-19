@@ -193,14 +193,14 @@ void forward(ann_t *nn, double (*activation_function)(double))
         cudaMemPrefetchAsync(nn->layers[l-1]->activations->m, nn->layers[l-1]->activations->rows * nn->layers[l-1]->activations->columns * sizeof(double), device, stream1);
         cudaMemPrefetchAsync(nn->layers[l]->biases->m, nn->layers[l]->biases->rows * nn->layers[l]->biases->columns * sizeof(double), device, stream2);
 
-        // Executa o primeiro matrix_dot em stream1
+         // z1 <- w^l x a^(l-1)
         dim3 blockDim(16, 16);
         dim3 gridDim(ceil(((float)nn->layers[l-1]->activations->columns) / blockDim.x), 
                      ceil(((float)nn->layers[l]->weights->rows) / blockDim.y));
         matrix_dot_GPU<<<gridDim, blockDim, 0, stream1>>>(nn->layers[l]->weights, nn->layers[l-1]->activations, z1);
         // cudaStreamSynchronize(stream1);
 
-        // Executa o segundo matrix_dot em stream2 (independente)
+         // z1 <- w^l x a^(l-1)
         dim3 blockDim2(16, 16);
         dim3 gridDim2(ceil(((float)one->columns) / blockDim2.x), 
                       ceil(((float)nn->layers[l]->biases->rows) / blockDim2.y));
