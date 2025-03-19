@@ -267,32 +267,6 @@ void matrix_dot_GPU_TD5(matrix_t *m1, matrix_t *m2, matrix_t *res) {
         res->m[row * m2->columns + col] = Pvalue;
 }
 
-double **convert_to_matrix(matrix_t *m1) {
-    if (!m1 || !m1->m || m1->columns == 0 || m1->rows == 0) {
-        return NULL;
-    }
-    
-    double **matrix;
-    CHECK_ERROR(cudaMallocManaged((void**)&matrix, m1->rows * sizeof(double *)));    
-    for (unsigned i = 0; i < m1->rows; i++) {
-        matrix[i] = &m1->m[i * m1->columns];
-    }
-    
-    return matrix;
-}
-
-void matrix_to_vector(matrix_t *m, double **matrix) {
-    if (!m || !m->m || !matrix || m->columns == 0 || m->rows == 0) {
-        return;
-    }
-
-    for (unsigned i = 0; i < m->rows; i++) {
-        for (unsigned j = 0; j < m->columns; j++) {
-            m->m[i * m->columns + j] = matrix[i][j];
-        }
-    }
-}
-
 
 void matrix_dot_cublas(matrix_t* m1, matrix_t* m2, matrix_t* res) {
     cublasHandle_t handle;
@@ -300,11 +274,6 @@ void matrix_dot_cublas(matrix_t* m1, matrix_t* m2, matrix_t* res) {
 
     const double alpha = 1.0;
     const double beta = 0.0;
-
-    // Removendo const para evitar erro de conversão
-    double **matrix_m1 = convert_to_matrix(m1);
-    double **matrix_m2 = convert_to_matrix(m2);
-    double **matrix_res = convert_to_matrix(res);
 
     cublasDgemm(handle,
                 CUBLAS_OP_N, CUBLAS_OP_N,
@@ -314,17 +283,7 @@ void matrix_dot_cublas(matrix_t* m1, matrix_t* m2, matrix_t* res) {
                 m2->m, m2->rows,
                 &beta,
                 res->m, res->rows);
-
-    // Copiando resultados de volta para o vetor res->m
-    matrix_to_vector(res, matrix_res);
-
-    cublasDestroy(handle);
-    cudaFree(matrix_m1);
-    cudaFree(matrix_m2);
-    cudaFree(matrix_res);
 }
-
-
 
 
 void matrix_function(matrix_t *m1, double (*f)(double), matrix_t *res)
