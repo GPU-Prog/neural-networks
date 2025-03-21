@@ -276,13 +276,32 @@ void matrix_dot_cublas(matrix_t* m1, matrix_t* m2, matrix_t* res) {
     const double beta = 0.0;
 
     cublasDgemm(handle,
-                CUBLAS_OP_N, CUBLAS_OP_N,
+                CUBLAS_OP_T, CUBLAS_OP_T,
                 m1->rows, m2->columns, m1->columns,
                 &alpha,
                 m1->m, m1->rows,  // Passa o vetor original (linearizado)
                 m2->m, m2->rows,
                 &beta,
                 res->m, res->rows);
+
+    double* res_copy;
+    cudaMallocManaged(&res_copy, res->rows * res->columns * sizeof(double));
+    cudaMemcpy(res_copy, res->m, res->rows * res->columns * sizeof(double), cudaMemcpyDeviceToDevice);
+
+    // Transpose the result matrix
+    for (int i = 0; i < res->rows; i++) {
+        for (int j = 0; j < res->columns; j++) {
+            res->m[j * res->rows + i] = res_copy[i * res->columns + j];
+        }
+    }
+
+    // Update the dimensions after transposing
+    int temp = res->rows;
+    res->rows = res->columns;
+    res->columns = temp;
+
+    cudaFree(res_copy);
+    cublasDestroy(handle);
 }
 
 
