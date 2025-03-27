@@ -7,7 +7,12 @@
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define MAX(a,b) (((a)>(b))?(a):(b))
+#define TILE_SIZE 16
 
+/**
+ * Libère la mémoire GPU associée à une matrice. 
+ * Désalloue d'abord les données, puis la structure.
+ */
 void destroy_matrix(matrix_t *m)
 {
     //printf("free %p %p\n", m, m->m);
@@ -16,6 +21,9 @@ void destroy_matrix(matrix_t *m)
     CHECK_ERROR(cudaFree(m));
 }
 
+/**
+ * Alloue une matrice en mémoire GPU et initialise ses valeurs à zéro.
+ */
 matrix_t * alloc_matrix(unsigned rows, unsigned columns)
 {
     matrix_t * res;
@@ -31,6 +39,9 @@ matrix_t * alloc_matrix(unsigned rows, unsigned columns)
     return res;
 }
 
+/**
+ * Affiche une matrice avec une option d'affichage réduit.
+ */
 void print_matrix(matrix_t *m, bool is_short){
     unsigned lim_rows = 0;
     unsigned lim_col = 0;
@@ -58,6 +69,10 @@ void print_matrix(matrix_t *m, bool is_short){
     if (is_short && lim_rows != m->rows) printf("...\n");
 }
 
+/**
+ * CPU
+ * Calcule le produit de Hadamard de deux matrices et stocke le résultat.
+ */
 void hadamard_product(matrix_t *m1, matrix_t *m2, matrix_t *res)
 {
     assert ( (m1->columns == m2->columns)   &&
@@ -71,6 +86,10 @@ void hadamard_product(matrix_t *m1, matrix_t *m2, matrix_t *res)
     }
 }
 
+/**
+ * GPU en utilisant la parallélisation CUDA
+ * Calcule le produit de Hadamard de deux matrices et stocke le résultat.
+ */
 __global__
 void hadamard_product_GPU(matrix_t *m1, matrix_t *m2, matrix_t *res) {
 
@@ -85,9 +104,12 @@ void hadamard_product_GPU(matrix_t *m1, matrix_t *m2, matrix_t *res) {
     if (row < m1->rows && col < m2->columns) {
         res->m[row*res->columns+col] = m1->m[row*m1->columns+col] * m2->m[row*m2->columns+col];
     } 
-
 }
 
+/**
+ * CPU
+ * Calcule la somme élément par élément de deux matrices.
+ */
 void matrix_sum(matrix_t *m1, matrix_t *m2, matrix_t *res)
 {
     assert ( (m1->columns == m2->columns)  &&
@@ -101,6 +123,10 @@ void matrix_sum(matrix_t *m1, matrix_t *m2, matrix_t *res)
     }
 }
 
+/**
+ * GPU en utilisant la parallélisation CUDA
+ * Calcule la somme élément par élément de deux matrices.
+ */
 __global__
 void matrix_sum_GPU(matrix_t *m1, matrix_t *m2, matrix_t *res)
 {
@@ -118,6 +144,10 @@ void matrix_sum_GPU(matrix_t *m1, matrix_t *m2, matrix_t *res)
     } 
 }
 
+/**
+ * CPU
+ * Calcule la différence élément par élément de deux matrices.
+ */
 void matrix_minus(matrix_t *m1, matrix_t *m2, matrix_t *res)
 {
     assert ( (m1->columns == m2->columns)  &&
@@ -131,7 +161,10 @@ void matrix_minus(matrix_t *m1, matrix_t *m2, matrix_t *res)
     }
 }
 
-
+/**
+ * GPU en utilisant la parallélisation CUDA
+ * Calcule la différence élément par élément de deux matrices.
+ */
 __global__
 void matrix_minus_GPU(matrix_t *m1, matrix_t *m2, matrix_t *res) {
 
@@ -147,9 +180,12 @@ void matrix_minus_GPU(matrix_t *m1, matrix_t *m2, matrix_t *res) {
     if (row < m1->rows && col < m1->columns) {
         res->m[idx] = m1->m[idx] - m2->m[idx];
     } 
-
 }
 
+/**
+ * CPU
+ * Effectue le produit matriciel classique entre deux matrices.
+ */
 void matrix_dot(matrix_t *m1, matrix_t *m2, matrix_t *res)
 {
     assert ( (m1->columns == m2->rows)  &&
@@ -173,7 +209,11 @@ void matrix_dot(matrix_t *m1, matrix_t *m2, matrix_t *res)
     }
 }
 
-/* __global__
+/**
+ * GPU en utilisant la parallélisation CUDA
+ * Effectue le produit matriciel classique entre deux matrices.
+ */
+__global__
 void matrix_dot_GPU(matrix_t *m1, matrix_t *m2, matrix_t *res) {
 
     assert ( (m1->columns == m2->rows)  &&
@@ -192,13 +232,14 @@ void matrix_dot_GPU(matrix_t *m1, matrix_t *m2, matrix_t *res) {
         }
         res->m[row*m2->columns+col] = sum;
     } 
+}
 
-} */
-
-#define TILE_SIZE 16
-
+/**
+ * GPU en utilisant la multiplication en tuiles
+ * Effectue le produit matriciel classique entre deux matrices.
+ */
 __global__
-void matrix_dot_GPU(matrix_t *m1, matrix_t *m2, matrix_t *res) {
+void matrix_dot_GPU_shared(matrix_t *m1, matrix_t *m2, matrix_t *res) {
     assert((m1->columns == m2->rows) &&
            (m1->rows == res->rows) &&
            (m2->columns == res->columns));
@@ -236,38 +277,9 @@ void matrix_dot_GPU(matrix_t *m1, matrix_t *m2, matrix_t *res) {
     }
 }
 
-__global__
-void matrix_dot_GPU_TD5(matrix_t *m1, matrix_t *m2, matrix_t *res) {
-    assert((m1->columns == m2->rows) &&
-           (m1->rows == res->rows) &&
-           (m2->columns == res->columns));
-
-    __shared__ float ds_M[TILE_SIZE][TILE_SIZE];
-    __shared__ float ds_N[TILE_SIZE][TILE_SIZE];
-    int bx = blockIdx.x, by = blockIdx.y, tx = threadIdx.x, ty = threadIdx.y,
-    row = by * TILE_SIZE + ty, col = bx * TILE_SIZE + tx;
-    float Pvalue = 0;
-
-    for (int m = 0; m < (m1->columns - 1) / TILE_SIZE + 1; ++m) {
-        if (row < m1->rows && m * TILE_SIZE + tx < m1->columns)
-            ds_M[ty][tx] = m1->m[row * m1->columns + m * TILE_SIZE + tx];
-        else
-            ds_M[ty][tx] = 0;
-        if (col < m2->columns && m * TILE_SIZE + ty < m2->rows)
-            ds_N[ty][tx] = m2->m[(m * TILE_SIZE + ty) * m2->columns + col];
-        else
-            ds_N[ty][tx] = 0;
-        __syncthreads();
-
-        for (int k = 0; k < TILE_SIZE; ++k)
-            Pvalue += ds_M[ty][k] * ds_N[k][tx];
-        __syncthreads();
-    }
-    if (row < m1->rows && col < m2->columns)
-        res->m[row * m2->columns + col] = Pvalue;
-}
-
-
+/**
+ * Effectue le produit matriciel en utilisant la bibliothèque cuBLAS.
+ */
 void matrix_dot_cublas(matrix_t* m1, matrix_t* m2, matrix_t* res) {
     cublasHandle_t handle;
     cublasCreate(&handle);
@@ -276,35 +288,20 @@ void matrix_dot_cublas(matrix_t* m1, matrix_t* m2, matrix_t* res) {
     const double beta = 0.0;
 
     cublasDgemm(handle,
-                CUBLAS_OP_T, CUBLAS_OP_T,
+                CUBLAS_OP_N, CUBLAS_OP_N,
                 m1->rows, m2->columns, m1->columns,
                 &alpha,
-                m1->m, m1->rows,  // Passa o vetor original (linearizado)
+                m1->m, m1->rows,
                 m2->m, m2->rows,
                 &beta,
                 res->m, res->rows);
 
-    double* res_copy;
-    cudaMallocManaged(&res_copy, res->rows * res->columns * sizeof(double));
-    cudaMemcpy(res_copy, res->m, res->rows * res->columns * sizeof(double), cudaMemcpyDeviceToDevice);
-
-    // Transpose the result matrix
-    for (int i = 0; i < res->rows; i++) {
-        for (int j = 0; j < res->columns; j++) {
-            res->m[j * res->rows + i] = res_copy[i * res->columns + j];
-        }
-    }
-
-    // Update the dimensions after transposing
-    int temp = res->rows;
-    res->rows = res->columns;
-    res->columns = temp;
-
-    cudaFree(res_copy);
     cublasDestroy(handle);
 }
 
-
+/**
+ * Applique une fonction scalaire à chaque élément d'une matrice.
+ */
 void matrix_function(matrix_t *m1, double (*f)(double), matrix_t *res)
 {
     assert ( (m1->columns == res->columns) &&             
@@ -316,6 +313,10 @@ void matrix_function(matrix_t *m1, double (*f)(double), matrix_t *res)
     }
 }
 
+/**
+ * CPU
+ * Calcule la transposée d'une matrice.
+ */
 void matrix_transpose(matrix_t *m1, matrix_t *res)
 {
     assert ( (m1->columns == res->rows) &&             
@@ -330,6 +331,10 @@ void matrix_transpose(matrix_t *m1, matrix_t *res)
     }
 }
 
+/**
+ * GPU en utilisant la parallélisation CUDA
+ * Calcule la transposée d'une matrice.
+ */
 __global__
 void matrix_transpose_GPU(matrix_t *m1, matrix_t *res) {
 
@@ -340,10 +345,12 @@ void matrix_transpose_GPU(matrix_t *m1, matrix_t *res) {
     {
         res->m[col*m1->rows+row] = m1->m[row*m1->columns+col];
     } 
-
 }
 
-
+/**
+ * CPU
+ * Multiplie chaque élément d'une matrice par un scalaire.
+ */
 void matrix_scalar(matrix_t *m1, double s, matrix_t *res)
 {
     assert ( (m1->rows == res->rows) &&             
@@ -355,6 +362,10 @@ void matrix_scalar(matrix_t *m1, double s, matrix_t *res)
     }
 }
 
+/**
+ * GPU en utilisant la parallélisation CUDA
+ * Multiplie chaque élément d'une matrice par un scalaire.
+ */
 __global__
 void matrix_scalar_GPU(matrix_t *m1, double s, matrix_t *res) {
 
@@ -368,6 +379,9 @@ void matrix_scalar_GPU(matrix_t *m1, double s, matrix_t *res) {
 
 }
 
+/**
+ * Copie les éléments d'une matrice source vers une matrice destination.
+ */
 void matrix_memcpy(matrix_t *dest, const matrix_t *src)
 {
     assert ( (dest->rows == src->rows)      &&             

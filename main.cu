@@ -1,5 +1,11 @@
-// Compile gcc -o ./ann main.c matrix.c ann.c mnist.c -lm
-// nvcc -o ./ann main.cu matrix.cu ann.cu mnist.cu -lm
+// Compile CPU Profiler:
+// nvcc -o ./ann main.cu matrix.cu ann.cu mnist.cu -lcublas -pg
+// ./ann
+// gprof -Q -b ann
+
+// Compile GPU Profiler:
+// nvcc -o ./ann main.cu matrix.cu ann.cu mnist.cu -lcublas -lm
+// sudo /usr/local/cuda/bin/nvprof ./ann
 
 #include <stdbool.h>
 #include <stdio.h>
